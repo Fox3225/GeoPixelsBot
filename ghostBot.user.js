@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         GhostPixel Bot
 // @namespace    https://github.com/nymtuta
-// @version      0.4.0
-// @description  A bot to place pixels from the ghost image on https://geopixels.net
-// @author       nymtuta
+// @version      0.4.1
+// @description  A bot to place pixels from the ghost image on https://geopixels.net (with UI & themes)
+// @author       nymtuta + assistant
 // @match        https://*.geopixels.net/*
 // @updateURL    https://github.com/nymtuta/GeoPixelsBot/raw/refs/heads/main/ghostBot.user.js
 // @downloadURL  https://github.com/nymtuta/GeoPixelsBot/raw/refs/heads/main/ghostBot.user.js
@@ -398,4 +398,384 @@ const SYNC_TILE_SIZE = 1000;
 		LOG_LEVELS.info,
 		"GhostPixel Bot loaded. Use ghostBot.start() to start and ghostBot.stop() to stop."
 	);
+
+    // ===========================================================
+    //        GHOSTBOT CONTROL PANEL UI (UNIFIED) — THEMES EDITION
+    // ===========================================================
+
+    const THEMES = {
+        dark: {
+            background: "rgba(20,20,20,0.92)",
+            text: "#fff",
+            accent: "#4CAF50",
+            border: "#333",
+            shadow: "0 0 12px rgba(0,0,0,0.7)"
+        },
+        light: {
+            background: "rgba(255,255,255,0.92)",
+            text: "#000",
+            accent: "#1976D2",
+            border: "#ddd",
+            shadow: "0 0 12px rgba(0,0,0,0.3)"
+        },
+        neon: {
+            background: "#000000cc",
+            text: "#0AFFEF",
+            accent: "#FF00E6",
+            border: "#0AFFEF",
+            shadow: "0 0 25px #0AFFEF"
+        },
+        cyberpunk: {
+            background: "#0d0221cc",
+            text: "#ff2b6e",
+            accent: "#05d9e8",
+            border: "#ff2b6e",
+            shadow: "0 0 20px #ff2b6e"
+        }
+    };
+
+    // default theme = cyberpunk (as requested)
+    let currentTheme = localStorage.getItem("ghostbot_theme") || "cyberpunk";
+
+    // Create panel element
+    const panel = document.createElement("div");
+    panel.classList.add("ghost-panel");
+    panel.style.position = "fixed";
+    panel.style.top = "20px";
+    panel.style.right = "20px";
+    panel.style.padding = "15px";
+    panel.style.width = "300px";
+    panel.style.borderRadius = "14px";
+    panel.style.zIndex = "999999";
+    panel.style.userSelect = "none";
+    panel.style.fontFamily = "Arial, sans-serif";
+    panel.style.transition = "box-shadow 0.15s, transform 0.08s";
+
+    panel.innerHTML = `
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <div style="font-size:18px; font-weight:700;">GhostBot Panel</div>
+            <button id="gbMin" title="Minimize" style="border:none;background:transparent;color:inherit;cursor:pointer;font-weight:700;">–</button>
+        </div>
+
+        <div id="gbBody">
+            <button id="gbStart" class="gbBtn" style="width:100%; padding:8px; border:none; border-radius:8px; margin-bottom:6px;">Start</button>
+            <button id="gbStop" class="gbBtn" style="width:100%; padding:8px; border:none; border-radius:8px; margin-bottom:6px;">Stop</button>
+            <button id="gbReload" class="gbBtn" style="width:100%; padding:8px; border:none; border-radius:8px; margin-bottom:10px;">Reload Ghost Data</button>
+
+            <label style="font-size:14px; font-weight:600;">Ignore Colors:</label>
+            <input id="gbIgnoreInput" type="text"
+                placeholder="Ex: #ff0000, #00ff00 or 16711680"
+                style="width:100%; padding:7px; border-radius:8px; border:1px solid rgba(0,0,0,0.2); margin-top:6px; margin-bottom:8px; box-sizing:border-box;">
+
+            <div style="display:flex; gap:8px; margin-bottom:10px;">
+                <button id="gbIgnoreButton" class="gbBtn" style="flex:1; padding:7px; border:none; border-radius:8px;">Add to Ignored</button>
+                <button id="gbClearIgnored" style="flex:1; padding:7px; border-radius:8px; border:1px solid rgba(0,0,0,0.15); background:transparent; cursor:pointer;">Clear Ignored</button>
+            </div>
+
+            <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                <label style="flex:1;"><input type="checkbox" id="gbTransparent"> Place Transparent Pixels</label>
+                <label style="flex:1;"><input type="checkbox" id="gbFreeColors" checked> Place Free Colors</label>
+            </div>
+
+            <hr style="margin:10px 0; border-color:rgba(0,0,0,0.18);">
+
+            <label style="font-size:14px; font-weight:700;">Theme:</label>
+            <select id="gbTheme" style="width:100%; padding:8px; border-radius:8px; margin-top:6px;"></select>
+
+            <div style="margin-top:10px; font-size:12px; color:inherit; opacity:0.9;">
+                <div>Status: <span id="gbStatus">idle</span></div>
+                <div id="gbIgnoredDisplay" style="margin-top:6px; word-break:break-all;"></div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Add style fix for option colors (improves visibility across browsers)
+    const styleFix = document.createElement("style");
+    styleFix.textContent = `
+        /* Ensure select options are readable across themes and browsers */
+        .ghost-panel select option {
+            background: rgba(0,0,0,0.9) !important;
+            color: #ffffff !important;
+        }
+        .ghost-panel.light select option {
+            background: #ffffff !important;
+            color: #000000 !important;
+        }
+        .ghost-panel.cyberpunk select option {
+            background: #0d0221 !important;
+            color: #ff2b6e !important;
+        }
+        .ghost-panel.neon select option {
+            background: #000000 !important;
+            color: #0AFFEF !important;
+        }
+        /* Make the select itself inherit theme text color */
+        .ghost-panel select, .ghost-panel input { color: inherit !important; }
+    `;
+    document.head.appendChild(styleFix);
+
+    // Populate theme selector
+    const themeSelect = panel.querySelector("#gbTheme");
+    Object.keys(THEMES).forEach(t => {
+        const option = document.createElement("option");
+        option.value = t;
+        option.innerText = t.toUpperCase();
+        themeSelect.appendChild(option);
+    });
+
+    // Helpers for ignored display
+    function updateIgnoredDisplay() {
+        const disp = panel.querySelector("#gbIgnoredDisplay");
+        if (!ignoredColors || ignoredColors.size === 0) {
+            disp.textContent = "Ignored: (none)";
+        } else {
+            disp.textContent = "Ignored: " + Array.from(ignoredColors).map(id => {
+                try { return "#" + new Color(id).hex().slice(1,7); } catch(e){ return String(id); }
+            }).join(", ");
+        }
+    }
+
+    // Apply theme function
+    function applyTheme(themeName) {
+        const theme = THEMES[themeName] || THEMES.dark;
+        currentTheme = themeName;
+        try { localStorage.setItem("ghostbot_theme", themeName); } catch (e) {}
+        panel.style.background = theme.background;
+        panel.style.color = theme.text;
+        panel.style.boxShadow = theme.shadow;
+        panel.style.border = `1px solid ${theme.border}`;
+
+        // style inputs and buttons
+        panel.querySelectorAll(".gbBtn").forEach(btn => {
+            btn.style.background = theme.accent;
+            btn.style.color = "#ffffff";
+            btn.style.boxShadow = "none";
+        });
+
+        // style text inputs background/foreground for readability
+        panel.querySelectorAll("input[type=text], select").forEach(el => {
+            // invert backgrounds for light theme
+            if (themeName === "light") {
+                el.style.background = "#fff";
+                el.style.color = "#000";
+                el.style.border = "1px solid #ddd";
+            } else {
+                el.style.background = "rgba(255,255,255,0.06)";
+                el.style.color = theme.text;
+                el.style.border = "1px solid rgba(255,255,255,0.06)";
+            }
+        });
+
+        // set a panel theme-specific class so option CSS applies
+        panel.className = "ghost-panel " + themeName;
+
+        themeSelect.value = themeName;
+    }
+
+    // Hook up buttons
+    const btnStart = panel.querySelector("#gbStart");
+    const btnStop = panel.querySelector("#gbStop");
+    const btnReload = panel.querySelector("#gbReload");
+    const inputIgnore = panel.querySelector("#gbIgnoreInput");
+    const btnIgnore = panel.querySelector("#gbIgnoreButton");
+    const btnClearIgnored = panel.querySelector("#gbClearIgnored");
+    const chkTransparent = panel.querySelector("#gbTransparent");
+    const chkFreeColors = panel.querySelector("#gbFreeColors");
+    const statusEl = panel.querySelector("#gbStatus");
+    const minBtn = panel.querySelector("#gbMin");
+    const gbBody = panel.querySelector("#gbBody");
+
+    // Minimize toggle
+    let minimized = false;
+    minBtn.onclick = () => {
+        minimized = !minimized;
+        gbBody.style.display = minimized ? "none" : "block";
+        minBtn.textContent = minimized ? "+" : "–";
+        panel.style.width = minimized ? "120px" : "300px";
+    };
+
+    // Start/Stop/Reload
+    btnStart.onclick = () => {
+        try {
+            usw.ghostBot.start();
+            statusEl.textContent = "running";
+            flashPanel();
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao iniciar ghostBot: " + e);
+        }
+    };
+    btnStop.onclick = () => {
+        try {
+            usw.ghostBot.stop();
+            statusEl.textContent = "stopped";
+            flashPanel();
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao parar ghostBot: " + e);
+        }
+    };
+    btnReload.onclick = () => {
+        try {
+            usw.ghostBot.reload();
+            statusEl.textContent = "reloaded";
+            flashPanel();
+            setTimeout(() => statusEl.textContent = "idle", 1200);
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao recarregar: " + e);
+        }
+    };
+
+    // Ignore colors - accepts comma separated hex or numbers or array-like string
+    function parseIgnoreInput(text) {
+        // remove brackets if user pasted array-like input
+        text = text.trim();
+        if (!text) return [];
+        if (text.startsWith("[") && text.endsWith("]")) text = text.slice(1, -1);
+        // split by comma or whitespace
+        const parts = text.split(/[,]+/).map(s => s.trim()).filter(Boolean);
+        const res = [];
+        for (const p of parts) {
+            // try hex
+            try {
+                if (p.startsWith("#") || /^[0-9a-fA-F]{6,8}$/.test(p)) {
+                    res.push(new Color(p).id());
+                    continue;
+                }
+                // numeric id?
+                const n = Number(p);
+                if (!Number.isNaN(n)) {
+                    res.push(n);
+                    continue;
+                }
+                // named color? try to parse via temporary element
+                const tmp = document.createElement("div");
+                tmp.style.color = p;
+                document.body.appendChild(tmp);
+                const cs = getComputedStyle(tmp).color;
+                document.body.removeChild(tmp);
+                if (cs && cs.startsWith("rgb")) {
+                    const nums = cs.match(/\d+/g).map(Number);
+                    const c = new Color({ r: nums[0], g: nums[1], b: nums[2], a: 255 });
+                    res.push(c.id());
+                    continue;
+                }
+            } catch (e) {
+                // ignore invalid token
+            }
+        }
+        return res;
+    }
+
+    btnIgnore.onclick = () => {
+        const text = inputIgnore.value.trim();
+        if (!text) return;
+        const ids = parseIgnoreInput(text);
+        if (!ids.length) {
+            alert("Nenhuma cor válida encontrada no input.");
+            return;
+        }
+        // call ghostBot.ignoreColors with array
+        try {
+            usw.ghostBot.ignoreColors(ids);
+            // update local ignoredColors set (the bot also updates it internally)
+            ids.forEach(id => ignoredColors.add(id));
+            updateIgnoredDisplay();
+            inputIgnore.value = "";
+            flashPanel();
+        } catch (e) {
+            console.error(e);
+            alert("Erro ao adicionar cores ignoradas: " + e);
+        }
+    };
+
+    btnClearIgnored.onclick = () => {
+        ignoredColors.clear();
+        try {
+            // call with empty array to clear
+            usw.ghostBot.ignoreColors([]);
+        } catch (e) {
+            console.warn("ghostBot.ignoreColors may not support clearing via []", e);
+        }
+        updateIgnoredDisplay();
+        flashPanel();
+    };
+
+    chkTransparent.onchange = (e) => {
+        try {
+            usw.ghostBot.placeTransparentGhostPixels = e.target.checked;
+        } catch (err) {
+            console.warn(err);
+        }
+    };
+    chkFreeColors.onchange = (e) => {
+        try {
+            usw.ghostBot.placeFreeColors = e.target.checked;
+        } catch (err) {
+            console.warn(err);
+        }
+    };
+
+    // Theme selector
+    themeSelect.onchange = () => {
+        applyTheme(themeSelect.value);
+    };
+
+    // Make panel draggable
+    let drag = false, dx = 0, dy = 0;
+    panel.addEventListener("mousedown", e => {
+        // only start drag if clicking header area or panel background (not inputs)
+        const tag = e.target.tagName.toLowerCase();
+        if (tag === "input" || tag === "select" || tag === "button" || e.target.closest("input") || e.target.closest("select")) return;
+        drag = true;
+        dx = e.clientX - panel.offsetLeft;
+        dy = e.clientY - panel.offsetTop;
+        panel.style.cursor = "grabbing";
+    });
+    document.addEventListener("mouseup", () => { drag = false; panel.style.cursor = "default"; });
+    document.addEventListener("mousemove", e => {
+        if (!drag) return;
+        panel.style.left = `${e.clientX - dx}px`;
+        panel.style.top = `${e.clientY - dy}px`;
+        panel.style.right = "auto";
+    });
+
+    // Small visual pulse when actions happen
+    function flashPanel() {
+        panel.style.transform = "scale(0.995)";
+        setTimeout(() => panel.style.transform = "scale(1)", 80);
+    }
+
+    // Initialize UI values from ghostBot defaults (if present)
+    try {
+        chkTransparent.checked = !!(usw.ghostBot && usw.ghostBot.placeTransparentGhostPixels);
+        chkFreeColors.checked = (usw.ghostBot && typeof usw.ghostBot.placeFreeColors !== "undefined") ? !!usw.ghostBot.placeFreeColors : true;
+    } catch (e) {}
+
+    // If the bot already has an ignoredColors set we try to mirror it
+    try {
+        // we only have access to the local ignoredColors var in this script; keep it in sync when ghostBot.ignoreColors called
+        // updateIgnoredDisplay will show our local set
+        updateIgnoredDisplay();
+    } catch (e) {}
+
+    // Populate theme/local settings and apply
+    applyTheme(currentTheme);
+
+    // Expose a small helper in page to programmatically open/close UI
+    usw.ghostBotUI = {
+        show: () => panel.style.display = "block",
+        hide: () => panel.style.display = "none",
+        toggle: () => panel.style.display = (panel.style.display === "none" ? "block" : "none"),
+        setTheme: (t) => { if (THEMES[t]) applyTheme(t); }
+    };
+
+    // ensure status initial
+    statusEl.textContent = "idle";
+    updateIgnoredDisplay();
+
+    // end of IIFE
 })();
